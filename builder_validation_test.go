@@ -123,12 +123,23 @@ func TestNullableMembershipFormsAndErrors(t *testing.T) {
 	t.Run("all nil In lowers to IsNull", func(t *testing.T) {
 		builder := newConstructionBuilder()
 		builder.In("field", []*int{nil, nil})
-		node := requireSingleRootChild[*nullNode](t, builder)
-		if node.operator != OperatorIsNull ||
-			node.nodeOrigin() != (Origin{Sequence: 1, Operator: OperatorIn}) {
-			t.Fatalf("lowered node = %#v", node)
+		raw := requireSingleRootChild[*membershipNode](t, builder)
+		if !raw.containsNull || len(raw.values) != 0 {
+			t.Fatalf("construction membership = %#v, want all-null input metadata", raw)
 		}
 		requireNoConstructionErrors(t, builder)
+
+		predicate, err := builder.Predicate()
+		if err != nil {
+			t.Fatalf("Predicate() error = %v, want nil", err)
+		}
+		root, _ := predicate.Root().AsGroup()
+		nodeView := requireViewChild(t, root, 0, KindNull)
+		node, _ := nodeView.AsNull()
+		if node.Operator() != OperatorIsNull ||
+			nodeView.Origin() != (Origin{Sequence: 1, Operator: OperatorIn}) {
+			t.Fatalf("lowered node = %#v", nodeView)
+		}
 	})
 
 	t.Run("non-null pointer NotIn dereferences values", func(t *testing.T) {

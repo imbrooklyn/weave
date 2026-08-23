@@ -208,31 +208,12 @@ func addMembership[T any, S ~[]T](
 		operator:         operator,
 		field:            field,
 		values:           normalizedValues,
+		containsNull:     containsNull,
 		inputSliceType:   inputSliceType,
 		inputElementType: inputElementType,
 		elementType:      elementType,
 	}
-
-	if operator != OperatorIn || !containsNull {
-		context.parent.children = append(context.parent.children, membership)
-		return
-	}
-
-	nullCheck := &nullNode{
-		nodeBase: nodeBase{origin: origin},
-		operator: OperatorIsNull,
-		field:    field,
-	}
-	if len(normalizedValues) == 0 {
-		context.parent.children = append(context.parent.children, nullCheck)
-		return
-	}
-
-	context.parent.children = append(context.parent.children, &groupNode{
-		nodeBase: nodeBase{origin: origin},
-		logic:    LogicAnyOf,
-		children: []node{membership, nullCheck},
-	})
+	context.parent.children = append(context.parent.children, membership)
 }
 
 func validateMembershipValues[T any, S ~[]T](

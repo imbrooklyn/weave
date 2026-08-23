@@ -7,8 +7,9 @@ import "github.com/imbrooklyn/weave/when"
 // call is later omitted. Builder is mutable and is not safe for concurrent
 // use. Callers must serialize all method calls.
 type Builder[C, E any] struct {
-	domain *predicateDomain
-	state  *constructionState
+	domain  *predicateDomain
+	factory *Factory[C, E]
+	state   *constructionState
 }
 
 func newBuilder[C, E any]() *Builder[C, E] {
@@ -20,6 +21,18 @@ func newBuilderForDomain[C, E any](domain *predicateDomain) *Builder[C, E] {
 		panic("weave: nil predicate domain")
 	}
 	builder := &Builder[C, E]{domain: domain}
+	builder.ensureState()
+	return builder
+}
+
+func newBuilderForFactory[C, E any](factory *Factory[C, E]) *Builder[C, E] {
+	if !validFactory(factory) {
+		panic("weave: invalid factory")
+	}
+	builder := &Builder[C, E]{
+		domain:  factory.domain,
+		factory: factory,
+	}
 	builder.ensureState()
 	return builder
 }

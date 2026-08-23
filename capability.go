@@ -221,7 +221,8 @@ func (c Capabilities) Missing(required Requirements) Requirements {
 }
 
 // Requirements describes the operators and optional features needed to
-// compile a predicate. Its zero value has no requirements.
+// compile a normalized predicate. Its zero value has no requirements, and its
+// value fields do not share mutable backing storage.
 type Requirements struct {
 	// Operators contains the required standard operations.
 	Operators OperatorSet

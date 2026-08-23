@@ -75,6 +75,8 @@ func TestPublicGoDocAndEnglishSourceText(t *testing.T) {
 	}
 	wantPhrases := map[string]string{
 		"Builder":   "not safe for concurrent use",
+		"Compiler":  "safe for concurrent use",
+		"Factory":   "safe for concurrent use",
 		"Group":     "not safe for concurrent use",
 		"Predicate": "safe for concurrent reads",
 		"NodeView":  "safe for concurrent reads",

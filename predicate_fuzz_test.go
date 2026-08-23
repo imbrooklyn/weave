@@ -338,12 +338,13 @@ func predicateErrorFingerprint(err error) string {
 		}
 		fmt.Fprintf(
 			&builder,
-			"%d/%d/%d/%d/%d/%s;",
+			"%d/%d/%d/%d/%d/%d/%s;",
 			diagnostic.Code,
 			diagnostic.Phase,
 			diagnostic.Origin.Sequence,
 			diagnostic.Origin.Operator,
 			diagnostic.Operator,
+			diagnostic.Feature,
 			diagnostic.Path.String(),
 		)
 	}

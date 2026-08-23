@@ -13,6 +13,22 @@ type apiExpression struct{ name string }
 type apiNumber int64
 type apiNumbers []apiNumber
 
+type apiCompiler struct{}
+
+func (apiCompiler) Compile(
+	weave.Predicate[apiCondition, apiExpression],
+) (apiCondition, error) {
+	return apiCondition{"compiled"}, nil
+}
+
+func (apiCompiler) Capabilities() weave.Capabilities {
+	return weave.Capabilities{
+		Operators: weave.NewOperatorSet(weave.OperatorEQ),
+	}
+}
+
+var _ weave.Compiler[apiCondition, apiExpression] = apiCompiler{}
+
 func TestBuilderAndGroupAPIShapesCompile(t *testing.T) {
 	var builder weave.Builder[apiCondition, apiExpression]
 	values := apiNumbers{1, 2}
@@ -81,5 +97,25 @@ func TestIntentionallyAbsentMethodShapes(t *testing.T) {
 		if _, present := groupType.MethodByName(name); present {
 			t.Fatalf("Group unexpectedly exposes %s", name)
 		}
+	}
+}
+
+func TestCompilerAndFactoryAPIShapesCompile(t *testing.T) {
+	factory := weave.NewFactory[apiCondition, apiExpression](apiCompiler{})
+	builder := factory.New().EQ("field", apiNumber(1))
+	predicate, err := builder.Predicate()
+	if err != nil {
+		t.Fatalf("Predicate failed: %v", err)
+	}
+	compiled, err := factory.Compile(predicate)
+	if err != nil || !reflect.DeepEqual(compiled, apiCondition{"compiled"}) {
+		t.Fatalf("Compile = (%#v, %v), want compiled condition", compiled, err)
+	}
+	built, err := builder.Build()
+	if err != nil || !reflect.DeepEqual(built, compiled) {
+		t.Fatalf("Build = (%#v, %v), want explicit Compile result", built, err)
+	}
+	if !factory.Capabilities().Operators.Has(weave.OperatorEQ) {
+		t.Fatal("Factory capability snapshot does not contain EQ")
 	}
 }

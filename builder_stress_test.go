@@ -378,10 +378,20 @@ func TestEveryLogicNormalDisabledEmptyNilAndNested(t *testing.T) {
 					t.Fatalf("Predicate() error = %v, want nil", err)
 				}
 				root, _ := predicate.Root().AsGroup()
-				nodeView := requireViewChild(t, root, 0, KindGroup)
-				view, _ := nodeView.AsGroup()
-				if view.Logic() != test.logic || view.ChildCount() != 0 {
-					t.Fatalf("empty group view = logic %v, %d children", view.Logic(), view.ChildCount())
+				want := test.logic == LogicAnyOf || test.logic == LogicNotAllOf
+				if !want {
+					if root.ChildCount() != 0 {
+						t.Fatalf("true identity root child count = %d, want 0", root.ChildCount())
+					}
+					return
+				}
+				nodeView := requireViewChild(t, root, 0, KindConstant)
+				constant, _ := nodeView.AsConstant()
+				if constant.Value() {
+					t.Fatal("false empty-group identity normalized to true")
+				}
+				if nodeView.Origin() != (Origin{Sequence: 1}) {
+					t.Fatalf("empty group origin = %#v, want sequence 1", nodeView.Origin())
 				}
 			})
 

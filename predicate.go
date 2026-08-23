@@ -2,6 +2,7 @@ package weave
 
 import (
 	"errors"
+	"reflect"
 	"sort"
 )
 
@@ -20,9 +21,10 @@ func newPredicateDomain() *predicateDomain {
 }
 
 type predicateState struct {
-	seal   *predicateSeal
-	domain *predicateDomain
-	root   *groupNode
+	seal         *predicateSeal
+	domain       *predicateDomain
+	root         *groupNode
+	requirements Requirements
 }
 
 // Predicate is a structurally immutable snapshot of a Builder. Its zero value
@@ -69,6 +71,29 @@ func (b *Builder[C, E]) Predicate() (Predicate[C, E], error) {
 	return Predicate[C, E]{state: state}, nil
 }
 
+// Build snapshots and normalizes the Builder with Predicate, then compiles the
+// resulting Predicate through the owning Factory. If Predicate fails, Build
+// returns that error without calling the Compiler.
+func (b *Builder[C, E]) Build() (C, error) {
+	var zero C
+	predicate, err := b.Predicate()
+	if err != nil {
+		return zero, err
+	}
+	if !validFactory(b.factory) {
+		return zero, newCompileError(
+			CodeInvalidState,
+			PhasePreflight,
+			NodePath{},
+			Origin{},
+			0,
+			0,
+			nil,
+		)
+	}
+	return b.factory.Compile(predicate)
+}
+
 // Root returns the implicit LogicAllOf root. It returns an invalid NodeView
 // for a zero or otherwise invalid Predicate value.
 func (p Predicate[C, E]) Root() NodeView[C, E] {
@@ -76,6 +101,16 @@ func (p Predicate[C, E]) Root() NodeView[C, E] {
 		return NodeView[C, E]{}
 	}
 	return NodeView[C, E]{state: p.state, node: p.state.root}
+}
+
+// Requirements returns an immutable value snapshot of the operators and
+// optional features used by the normalized predicate. It returns zero
+// Requirements for a zero or otherwise invalid Predicate.
+func (p Predicate[C, E]) Requirements() Requirements {
+	if !validPredicateState(p.state) {
+		return Requirements{}
+	}
+	return p.state.requirements
 }
 
 func (p Predicate[C, E]) statusFor(domain *predicateDomain) predicateStatus {
@@ -112,6 +147,17 @@ func validPredicateState(state *predicateState) bool {
 }
 
 func snapshotConstruction[C, E any](
+	construction *constructionState,
+	domain *predicateDomain,
+) (*predicateState, *Error) {
+	raw, err := cloneConstructionSnapshot[C, E](construction, domain)
+	if err != nil {
+		return nil, err
+	}
+	return normalizePredicateState[C, E](raw, domain)
+}
+
+func cloneConstructionSnapshot[C, E any](
 	construction *constructionState,
 	domain *predicateDomain,
 ) (*predicateState, *Error) {
@@ -236,6 +282,7 @@ func cloneSnapshotNode[C, E any](
 			operator:         value.operator,
 			field:            value.field,
 			values:           values,
+			containsNull:     value.containsNull,
 			inputSliceType:   value.inputSliceType,
 			inputElementType: value.inputElementType,
 			elementType:      value.elementType,
@@ -359,11 +406,7 @@ func inspectSnapshotNode[C, E any](source node) (snapshotNodeMetadata, bool) {
 			operator: value.operator,
 			origin:   value.origin,
 		}
-		return metadata,
-			isMembershipOperator(value.operator) &&
-				value.inputSliceType != nil &&
-				value.inputElementType != nil &&
-				value.elementType != nil
+		return metadata, validSnapshotMembership(value)
 	case *rangeNode:
 		if value == nil {
 			return snapshotNodeMetadata{}, false
@@ -424,6 +467,42 @@ func inspectSnapshotNode[C, E any](source node) (snapshotNodeMetadata, bool) {
 	default:
 		return snapshotNodeMetadata{}, false
 	}
+}
+
+func validSnapshotMembership(value *membershipNode) bool {
+	if !isMembershipOperator(value.operator) ||
+		value.inputSliceType == nil ||
+		value.inputSliceType.Kind() != reflect.Slice ||
+		value.inputElementType == nil ||
+		value.inputSliceType.Elem() != value.inputElementType ||
+		value.elementType == nil {
+		return false
+	}
+
+	if value.inputElementType.Kind() == reflect.Pointer {
+		if value.inputElementType.Elem().Kind() == reflect.Pointer ||
+			value.elementType != value.inputElementType.Elem() {
+			return false
+		}
+	} else if value.elementType != value.inputElementType {
+		return false
+	}
+	if value.containsNull &&
+		(value.operator != OperatorIn ||
+			value.inputElementType.Kind() != reflect.Pointer) {
+		return false
+	}
+
+	for _, element := range value.values {
+		if isNilLike(element) {
+			return false
+		}
+		elementType := reflect.TypeOf(element)
+		if elementType == nil || !elementType.AssignableTo(value.elementType) {
+			return false
+		}
+	}
+	return true
 }
 
 func appendSnapshotPath(

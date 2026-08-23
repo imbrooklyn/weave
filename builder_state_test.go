@@ -260,41 +260,20 @@ func TestInclusionPredicatePanicPropagatesAfterConsumingOrigin(t *testing.T) {
 	}
 }
 
-func TestNullableMembershipLoweringSharesOneOrigin(t *testing.T) {
+func TestNullableMembershipConstructionDefersLoweringWithOneOrigin(t *testing.T) {
 	builder := newConstructionBuilder()
 	one, two := 1, 2
 	input := []*int{&one, nil, &two}
 	builder.In("field", input)
 
-	lowered := requireSingleRootChild[*groupNode](t, builder)
-	if lowered.logic != LogicAnyOf {
-		t.Fatalf("lowered logic = %v, want %v", lowered.logic, LogicAnyOf)
-	}
-	if len(lowered.children) != 2 {
-		t.Fatalf("lowered child count = %d, want 2", len(lowered.children))
-	}
-	membership, ok := lowered.children[0].(*membershipNode)
-	if !ok {
-		t.Fatalf("lowered child 0 type = %T, want *membershipNode", lowered.children[0])
-	}
-	nullCheck, ok := lowered.children[1].(*nullNode)
-	if !ok {
-		t.Fatalf("lowered child 1 type = %T, want *nullNode", lowered.children[1])
-	}
-
+	membership := requireSingleRootChild[*membershipNode](t, builder)
 	wantOrigin := Origin{Sequence: 1, Operator: OperatorIn}
-	requireNodeOrigin(t, lowered, wantOrigin)
 	requireNodeOrigin(t, membership, wantOrigin)
-	requireNodeOrigin(t, nullCheck, wantOrigin)
-	if membership.operator != OperatorIn || nullCheck.operator != OperatorIsNull {
-		t.Fatalf(
-			"lowered operators = (%v, %v), want (in, is_null)",
-			membership.operator,
-			nullCheck.operator,
-		)
+	if membership.operator != OperatorIn || !membership.containsNull {
+		t.Fatalf("membership = %#v, want nullable In", membership)
 	}
 	if !reflect.DeepEqual(membership.values, []any{1, 2}) {
-		t.Fatalf("lowered values = %#v, want [1 2]", membership.values)
+		t.Fatalf("construction values = %#v, want [1 2]", membership.values)
 	}
 	if membership.inputSliceType != reflect.TypeFor[[]*int]() ||
 		membership.inputElementType != reflect.TypeFor[*int]() ||

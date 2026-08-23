@@ -55,6 +55,7 @@ type membershipNode struct {
 	operator         Operator
 	field            any
 	values           []any
+	containsNull     bool
 	inputSliceType   reflect.Type
 	inputElementType reflect.Type
 	elementType      reflect.Type
