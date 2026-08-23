@@ -1,0 +1,51 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Weave.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Do not include query values, credentials, or other sensitive data. Report security vulnerabilities through the private process in SECURITY.md.
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version
+      description: Paste the complete output of `go version`.
+      placeholder: go version go1.27.0 linux/amd64
+    validations:
+      required: true
+  - type: input
+    id: weave-version
+    attributes:
+      label: Weave revision or version
+      description: Provide the module version or commit revision that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: Describe what happened and include a minimal, redacted reproduction.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Describe the result you expected from the documented contract.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification details
+      description: List the commands, race results, or compiler diagnostics that help reproduce the issue.
+  - type: checkboxes
+    id: sensitive-data
+    attributes:
+      label: Sensitive data check
+      options:
+        - label: I removed query values, credentials, Native payloads, Expr payloads, and unrelated personal data.
+          required: true

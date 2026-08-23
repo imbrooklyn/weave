@@ -1,0 +1,2 @@
+fixture.go:10:17
+time.Time does not satisfy when.Number

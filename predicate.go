@@ -27,9 +27,10 @@ type predicateState struct {
 	requirements Requirements
 }
 
-// Predicate is a structurally immutable snapshot of a Builder. Its zero value
-// is invalid. Predicate and its node views are safe for concurrent reads when
-// callers do not mutate borrowed payloads.
+// Predicate is a structurally immutable, normalized snapshot of a Builder. Its
+// zero value is invalid. Predicate and its node views are safe for concurrent
+// reads when callers do not mutate borrowed fields, nested value references,
+// native payload references, or expression payloads.
 type Predicate[C, E any] struct {
 	state *predicateState
 }
@@ -43,8 +44,9 @@ const (
 )
 
 // Predicate creates an independent structural snapshot of the Builder's
-// current nodes. It returns a zero Predicate when construction or snapshot
-// validation fails.
+// current nodes and normalizes empty collections, nullable In, empty groups,
+// and identity constants. It returns a zero Predicate when construction or
+// snapshot validation fails.
 func (b *Builder[C, E]) Predicate() (Predicate[C, E], error) {
 	construction := b.ensureState()
 	state, snapshotError := snapshotConstruction[C, E](

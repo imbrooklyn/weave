@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Go 1.27 verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOTOOLCHAIN: local
+      GOWORK: "off"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go 1.27
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: false
+
+      - name: Show Go version
+        run: go version
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          unformatted="$(find . -type f -name '*.go' -not -path './.git/*' -print0 | xargs -0 gofmt -l)"
+          test -z "$unformatted"
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Run race detector
+        run: go test -race ./...
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Check runtime dependencies
+        shell: bash
+        run: |
+          unexpected="$({
+            go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' . ./when |
+              grep -v -E '^github.com/imbrooklyn/weave(/when)?$' || true
+          })"
+          if [[ -n "$unexpected" ]]; then
+            printf 'Unexpected non-standard-library runtime dependencies:\n%s\n' "$unexpected"
+            exit 1
+          fi

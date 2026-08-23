@@ -15,7 +15,8 @@ type Group[E any] struct {
 }
 
 // Scope populates one explicit Boolean group. The Group argument is valid only
-// for the duration of the call.
+// for the duration of the call and freezes before Scope returns or a panic
+// unwinds through it.
 type Scope[E any] func(*Group[E])
 
 func (g *Group[E]) constructionContext() constructionContext {
@@ -92,8 +93,9 @@ func (g *Group[E]) GTE[T any](
 	return g
 }
 
-// In adds a membership test when every predicate reports true. A one-level
-// pointer element type uses nil elements to represent explicit null values.
+// In adds a membership test when every predicate reports true. An empty input
+// is normalized to false. A one-level pointer element type uses nil elements to
+// represent explicit null values; mixed input lowers to In(nonNil) OR IsNull.
 func (g *Group[E]) In[T any, S ~[]T](
 	field any,
 	values S,
@@ -103,7 +105,9 @@ func (g *Group[E]) In[T any, S ~[]T](
 	return g
 }
 
-// NotIn adds a non-null exclusion test when every predicate reports true.
+// NotIn adds a non-null exclusion test when every predicate reports true. An
+// empty input is normalized to true. A one-level pointer input is accepted only
+// when every element is non-nil; any nil element is an invalid value.
 func (g *Group[E]) NotIn[T any, S ~[]T](
 	field any,
 	values S,
@@ -113,7 +117,9 @@ func (g *Group[E]) NotIn[T any, S ~[]T](
 	return g
 }
 
-// Between adds an inclusive numeric range when every predicate reports true.
+// Between adds the inclusive numeric range field >= lower AND field <= upper
+// when every predicate reports true. An enabled inverted range is invalid, as
+// is a range with a floating-point NaN bound.
 func (g *Group[E]) Between[T when.Number](
 	field any,
 	lower T,
@@ -166,36 +172,39 @@ func (g *Group[E]) HasSuffix(
 	return g
 }
 
-// AllOf adds a nested group that requires every child to match. A disabled
-// group does not invoke scope.
+// AllOf adds a nested group that requires every child to match. An enabled
+// empty group is true. A disabled group is omitted and does not invoke scope.
 func (g *Group[E]) AllOf(scope Scope[E], enabled ...bool) *Group[E] {
 	addGroup(g.constructionContext(), LogicAllOf, scope, enabled)
 	return g
 }
 
-// AnyOf adds a nested group that requires at least one child to match. A
-// disabled group does not invoke scope.
+// AnyOf adds a nested group that requires at least one child to match. An
+// enabled empty group is false. A disabled group is omitted and does not invoke
+// scope.
 func (g *Group[E]) AnyOf(scope Scope[E], enabled ...bool) *Group[E] {
 	addGroup(g.constructionContext(), LogicAnyOf, scope, enabled)
 	return g
 }
 
-// NoneOf adds a nested group that requires no child to match. A disabled group
-// does not invoke scope.
+// NoneOf adds a nested group that requires no child to match. An enabled empty
+// group is true. A disabled group is omitted and does not invoke scope.
 func (g *Group[E]) NoneOf(scope Scope[E], enabled ...bool) *Group[E] {
 	addGroup(g.constructionContext(), LogicNoneOf, scope, enabled)
 	return g
 }
 
 // NotAllOf adds a nested group that requires at least one child not to match.
-// A disabled group does not invoke scope.
+// An enabled empty group is false. A disabled group is omitted and does not
+// invoke scope.
 func (g *Group[E]) NotAllOf(scope Scope[E], enabled ...bool) *Group[E] {
 	addGroup(g.constructionContext(), LogicNotAllOf, scope, enabled)
 	return g
 }
 
 // Expr adds an opaque adapter-native expression when every enabled value is
-// true. Core does not inspect, clone, or validate expression.
+// true. Core does not inspect, clone, or validate expression. The caller must
+// keep borrowed expression state immutable while a snapshot can use it.
 func (g *Group[E]) Expr(expression E, enabled ...bool) *Group[E] {
 	addNativeExpression(g.constructionContext(), expression, enabled)
 	return g

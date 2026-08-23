@@ -2,10 +2,11 @@ package weave
 
 import "github.com/imbrooklyn/weave/when"
 
-// Builder constructs one adapter-bound predicate. Each construction method
-// reserves an Origin before evaluating inclusion controls, including when the
-// call is later omitted. Builder is mutable and is not safe for concurrent
-// use. Callers must serialize all method calls.
+// Builder constructs one adapter-bound predicate. C is the Compiler's final
+// condition type, and E is its opaque nestable expression carrier. Each
+// construction method reserves an Origin before evaluating inclusion controls,
+// including when the call is later omitted. Builder is mutable and is not safe
+// for concurrent use. Callers must serialize all method calls.
 type Builder[C, E any] struct {
 	domain  *predicateDomain
 	factory *Factory[C, E]
@@ -121,8 +122,9 @@ func (b *Builder[C, E]) GTE[T any](
 	return b
 }
 
-// In adds a membership test when every predicate reports true. A one-level
-// pointer element type uses nil elements to represent explicit null values.
+// In adds a membership test when every predicate reports true. An empty input
+// is normalized to false. A one-level pointer element type uses nil elements to
+// represent explicit null values; mixed input lowers to In(nonNil) OR IsNull.
 func (b *Builder[C, E]) In[T any, S ~[]T](
 	field any,
 	values S,
@@ -132,7 +134,9 @@ func (b *Builder[C, E]) In[T any, S ~[]T](
 	return b
 }
 
-// NotIn adds a non-null exclusion test when every predicate reports true.
+// NotIn adds a non-null exclusion test when every predicate reports true. An
+// empty input is normalized to true. A one-level pointer input is accepted only
+// when every element is non-nil; any nil element is an invalid value.
 func (b *Builder[C, E]) NotIn[T any, S ~[]T](
 	field any,
 	values S,
@@ -142,7 +146,9 @@ func (b *Builder[C, E]) NotIn[T any, S ~[]T](
 	return b
 }
 
-// Between adds an inclusive numeric range when every predicate reports true.
+// Between adds the inclusive numeric range field >= lower AND field <= upper
+// when every predicate reports true. An enabled inverted range is invalid, as
+// is a range with a floating-point NaN bound.
 func (b *Builder[C, E]) Between[T when.Number](
 	field any,
 	lower T,
@@ -195,29 +201,30 @@ func (b *Builder[C, E]) HasSuffix(
 	return b
 }
 
-// AllOf adds a group that requires every child to match. A disabled group does
-// not invoke scope.
+// AllOf adds a group that requires every child to match. An enabled empty group
+// is true. A disabled group is omitted and does not invoke scope.
 func (b *Builder[C, E]) AllOf(scope Scope[E], enabled ...bool) *Builder[C, E] {
 	addGroup(b.constructionContext(), LogicAllOf, scope, enabled)
 	return b
 }
 
-// AnyOf adds a group that requires at least one child to match. A disabled
-// group does not invoke scope.
+// AnyOf adds a group that requires at least one child to match. An enabled
+// empty group is false. A disabled group is omitted and does not invoke scope.
 func (b *Builder[C, E]) AnyOf(scope Scope[E], enabled ...bool) *Builder[C, E] {
 	addGroup(b.constructionContext(), LogicAnyOf, scope, enabled)
 	return b
 }
 
-// NoneOf adds a group that requires no child to match. A disabled group does
-// not invoke scope.
+// NoneOf adds a group that requires no child to match. An enabled empty group
+// is true. A disabled group is omitted and does not invoke scope.
 func (b *Builder[C, E]) NoneOf(scope Scope[E], enabled ...bool) *Builder[C, E] {
 	addGroup(b.constructionContext(), LogicNoneOf, scope, enabled)
 	return b
 }
 
-// NotAllOf adds a group that requires at least one child not to match. A
-// disabled group does not invoke scope.
+// NotAllOf adds a group that requires at least one child not to match. An
+// enabled empty group is false. A disabled group is omitted and does not invoke
+// scope.
 func (b *Builder[C, E]) NotAllOf(scope Scope[E], enabled ...bool) *Builder[C, E] {
 	addGroup(b.constructionContext(), LogicNotAllOf, scope, enabled)
 	return b
@@ -225,14 +232,16 @@ func (b *Builder[C, E]) NotAllOf(scope Scope[E], enabled ...bool) *Builder[C, E]
 
 // Native adds an adapter-native final condition directly below the implicit
 // root when every enabled value is true. Core treats condition as opaque apart
-// from shallow-cloning a top-level slice.
+// from shallow-cloning a top-level slice. The caller and Compiler are
+// responsible for the condition's backend validity and safety.
 func (b *Builder[C, E]) Native(condition C, enabled ...bool) *Builder[C, E] {
 	addNativeCondition(b.constructionContext(), condition, enabled)
 	return b
 }
 
 // Expr adds an opaque adapter-native expression when every enabled value is
-// true. Core does not inspect, clone, or validate expression.
+// true. Core does not inspect, clone, or validate expression. The caller must
+// keep borrowed expression state immutable while a snapshot can use it.
 func (b *Builder[C, E]) Expr(expression E, enabled ...bool) *Builder[C, E] {
 	addNativeExpression(b.constructionContext(), expression, enabled)
 	return b

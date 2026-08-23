@@ -1,11 +1,12 @@
 package when
 
 // Predicate decides whether a value causes its associated query node to be
-// included.
+// included. False means that the node is omitted, not that the node is a
+// Boolean false constant.
 type Predicate[T any] func(T) bool
 
 // PairPredicate decides whether a pair of values causes its associated query
-// node to be included.
+// node to be included. False means that the node is omitted.
 type PairPredicate[A, B any] func(A, B) bool
 
 // All returns a predicate that evaluates predicates from left to right and

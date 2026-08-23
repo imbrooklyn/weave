@@ -8,8 +8,10 @@ package weave
 // capability, and error safeguards, so implementations must still validate
 // their own adapter contracts defensively.
 type Compiler[C, E any] interface {
-	// Compile validates predicate for the adapter and emits a backend condition.
+	// Compile validates every predicate node for the adapter and emits a backend
+	// condition. It returns the zero C on failure.
 	Compile(Predicate[C, E]) (C, error)
-	// Capabilities returns the compiler's stable capability commitment.
+	// Capabilities returns the compiler's stable capability commitment. Its result
+	// must not change during the Compiler's lifetime.
 	Capabilities() Capabilities
 }

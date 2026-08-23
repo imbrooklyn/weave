@@ -1,0 +1,2 @@
+fixture.go:5:22
+in call to when.NotEmpty, cannot infer E

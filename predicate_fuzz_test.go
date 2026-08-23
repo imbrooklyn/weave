@@ -3,9 +3,14 @@ package weave
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
+
+	"github.com/imbrooklyn/weave/when"
 )
+
+type fuzzNamedFloat64 float64
 
 func FuzzBuilderConstructionSequence(f *testing.F) {
 	f.Add([]byte{})
@@ -179,6 +184,89 @@ func FuzzNullableMembershipInputs(f *testing.F) {
 			}
 		}
 		assertMembershipViewsContainNoNil(t, predicate.Root())
+	})
+}
+
+func FuzzNumericRangeNaNAndDeterminism(f *testing.F) {
+	f.Add(uint8(0), math.Float64bits(1), math.Float64bits(2))
+	f.Add(uint8(0), math.Float64bits(math.NaN()), math.Float64bits(2))
+	f.Add(uint8(0), math.Float64bits(1), math.Float64bits(math.NaN()))
+	f.Add(uint8(1), uint64(math.Float32bits(float32(math.NaN()))), uint64(math.Float32bits(1)))
+	f.Add(uint8(2), math.Float64bits(2), math.Float64bits(1))
+
+	f.Fuzz(func(t *testing.T, rawMode uint8, lowerBits uint64, upperBits uint64) {
+		switch rawMode % 3 {
+		case 0:
+			fuzzNumericRangeCase(
+				t,
+				math.Float64frombits(lowerBits),
+				math.Float64frombits(upperBits),
+			)
+		case 1:
+			fuzzNumericRangeCase(
+				t,
+				math.Float32frombits(uint32(lowerBits)),
+				math.Float32frombits(uint32(upperBits)),
+			)
+		case 2:
+			fuzzNumericRangeCase(
+				t,
+				fuzzNamedFloat64(math.Float64frombits(lowerBits)),
+				fuzzNamedFloat64(math.Float64frombits(upperBits)),
+			)
+		}
+	})
+}
+
+func fuzzNumericRangeCase[T when.Number](t *testing.T, lower T, upper T) {
+	t.Helper()
+	builder := newConstructionBuilder()
+	builder.Between("field", lower, upper)
+
+	first, firstError := builder.Predicate()
+	second, secondError := builder.Predicate()
+	if firstFingerprint, secondFingerprint := predicateErrorFingerprint(firstError), predicateErrorFingerprint(secondError); firstFingerprint != secondFingerprint {
+		t.Fatalf("repeated range errors differ: first %q, second %q", firstFingerprint, secondFingerprint)
+	}
+
+	wantError := error(nil)
+	if lower != lower || upper != upper {
+		wantError = ErrInvalidValue
+	} else if lower > upper {
+		wantError = ErrInvalidRange
+	}
+	if wantError != nil {
+		if !errors.Is(firstError, wantError) {
+			t.Fatalf("Between(%v, %v) error = %v, want %v", lower, upper, firstError, wantError)
+		}
+		if errors.Is(firstError, ErrCompile) {
+			t.Fatal("range construction error unexpectedly matches ErrCompile")
+		}
+		if first.Root().Valid() || second.Root().Valid() {
+			t.Fatal("invalid range returned a valid Predicate")
+		}
+		return
+	}
+
+	if firstError != nil || secondError != nil {
+		t.Fatalf("valid range errors = (%v, %v), want nil", firstError, secondError)
+	}
+	firstFingerprint, ok := predicateViewFingerprint(t, first.Root())
+	if !ok {
+		t.Fatal("first range snapshot contains an invalid view")
+	}
+	secondFingerprint, ok := predicateViewFingerprint(t, second.Root())
+	if !ok || secondFingerprint != firstFingerprint {
+		t.Fatalf("repeated range snapshots differ: first %q, second %q", firstFingerprint, secondFingerprint)
+	}
+	root, _ := first.Root().AsGroup()
+	rangeNode := requireViewChild(t, root, 0, KindRange)
+	rangeView, _ := rangeNode.AsRange()
+	if rangeView.Lower() != any(lower) || rangeView.Upper() != any(upper) {
+		t.Fatalf("range bounds = (%v, %v), want (%v, %v)", rangeView.Lower(), rangeView.Upper(), lower, upper)
+	}
+	assertRequirementsEqual(t, first.Requirements(), Requirements{
+		Operators: NewOperatorSet(OperatorBetween),
 	})
 }
 

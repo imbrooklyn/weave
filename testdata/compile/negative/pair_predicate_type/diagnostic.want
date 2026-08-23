@@ -1,0 +1,3 @@
+fixture.go:9:38
+cannot use predicate
+when.PairPredicate[int, int]

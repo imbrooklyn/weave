@@ -1,0 +1,3 @@
+fixture.go:11:39
+cannot use predicate
+when.Predicate[namedInts]
