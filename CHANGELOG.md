@@ -13,5 +13,6 @@ This file records notable user-visible changes to Weave. It follows the structur
 - Compiler capabilities, normalized Predicate requirements, and Factory preflight.
 - Structured, redacted, location-aware errors.
 - Go 1.27 compile-contract fixtures, fuzz targets, race coverage, and benchmark baselines.
+- Backend-neutral `compilertest` records and harness callbacks covering semantic match sets, capabilities, redacted validation errors, backend-owned condition inspection, and repeat/concurrency stability.
 
 [Unreleased]: https://github.com/imbrooklyn/weave/commits/main

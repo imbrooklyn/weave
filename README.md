@@ -17,7 +17,16 @@ The module and package paths are:
 ```text
 github.com/imbrooklyn/weave
 github.com/imbrooklyn/weave/when
+github.com/imbrooklyn/weave/compilertest
 ```
+
+The `compilertest` package provides a shared scalar fixture and a
+Factory/field/capability/execution callback harness for Adapter semantic tests.
+It checks every standard operator, all four Boolean logics, null and missing
+states, Native and Expr, redacted validation errors, and repeated and
+concurrent compilation by comparing stable record-ID match sets. It never
+interprets backend output. Harnesses may add their own condition inspection
+callback for representation-specific parameterization or safety assertions.
 
 ## Core API
 
