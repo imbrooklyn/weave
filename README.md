@@ -27,6 +27,9 @@ states, Native and Expr, redacted validation errors, and repeated and
 concurrent compilation by comparing stable record-ID match sets. It never
 interprets backend output. Harnesses may add their own condition inspection
 callback for representation-specific parameterization or safety assertions.
+`Scenarios` exposes the same read-only canonical semantic cases to ordinary
+programs, so runnable examples can share the suite's Predicate construction and
+expected IDs without depending on `testing.T` or copying contract cases.
 
 ## Core API
 

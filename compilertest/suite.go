@@ -1,6 +1,7 @@
 package compilertest
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -66,10 +67,98 @@ type Harness[C, E any] struct {
 }
 
 type semanticCase[C, E any] struct {
-	name            string
-	wantIDs         []string
-	requiresMissing bool
-	build           func(*weave.Builder[C, E], Harness[C, E])
+	name                     string
+	wantIDs                  []string
+	missingCollapsedIDs      []string
+	supportsMissingCollapsed bool
+	requiresMissing          bool
+	build                    func(*weave.Builder[C, E], Harness[C, E])
+}
+
+// Scenario is one read-only canonical semantic case. Scenario values are
+// produced by Scenarios; the zero value is invalid. The predicate construction
+// callback and expected match set remain owned by compilertest so executable
+// examples cannot fork the Adapter contract cases.
+type Scenario[C, E any] struct {
+	name                    string
+	expectedIDs             []string
+	requiresDistinctMissing bool
+	usesMissingCollapsed    bool
+	build                   func(*weave.Builder[C, E])
+}
+
+// Name returns the stable human-readable scenario name.
+func (scenario Scenario[C, E]) Name() string {
+	return scenario.name
+}
+
+// ExpectedIDs returns an independent copy of the canonical record-ID match
+// set selected for the Harness storage semantics passed to Scenarios. Callers
+// may sort or otherwise modify the returned slice.
+func (scenario Scenario[C, E]) ExpectedIDs() []string {
+	return slices.Clone(scenario.expectedIDs)
+}
+
+// RequiresDistinctMissing reports whether this scenario relies on missing and
+// explicit null remaining observably distinct.
+func (scenario Scenario[C, E]) RequiresDistinctMissing() bool {
+	return scenario.requiresDistinctMissing
+}
+
+// UsesMissingCollapsedMatchSet reports whether ExpectedIDs reflects a Harness
+// that materializes missing fixture values as explicit null. Differential
+// runners can use this metadata to distinguish a canonical storage adjustment
+// from a semantic mismatch with a missing-aware reference backend.
+func (scenario Scenario[C, E]) UsesMissingCollapsedMatchSet() bool {
+	return scenario.usesMissingCollapsed
+}
+
+// Build creates and compiles this scenario through factory. It returns an
+// error for a nil Factory or an invalid zero Scenario.
+func (scenario Scenario[C, E]) Build(factory *weave.Factory[C, E]) (C, error) {
+	var zero C
+	if factory == nil {
+		return zero, errors.New("compilertest: nil Factory")
+	}
+	if scenario.build == nil {
+		return zero, errors.New("compilertest: invalid Scenario")
+	}
+	builder := factory.New()
+	scenario.build(builder)
+	return builder.Build()
+}
+
+// Scenarios returns the canonical backend-neutral semantic match-set cases for
+// harness. Native and Expr cases are included only when their corresponding
+// Harness constructors are present. For a Harness that materializes missing as
+// explicit null, null-sensitive scenarios expose their canonical collapsed
+// match sets and only a scenario that must identify missing remains
+// unavailable. Every call returns independent Scenario metadata; callers
+// cannot replace or mutate the package-owned definitions.
+func Scenarios[C, E any](harness Harness[C, E]) []Scenario[C, E] {
+	tests := semanticCases(harness)
+	scenarios := make([]Scenario[C, E], 0, len(tests))
+	for _, test := range tests {
+		test := test
+		expectedIDs := test.wantIDs
+		requiresDistinctMissing := test.requiresMissing
+		usesMissingCollapsed := false
+		if !harness.DistinguishesMissing && test.supportsMissingCollapsed {
+			expectedIDs = test.missingCollapsedIDs
+			requiresDistinctMissing = false
+			usesMissingCollapsed = true
+		}
+		scenarios = append(scenarios, Scenario[C, E]{
+			name:                    test.name,
+			expectedIDs:             slices.Clone(expectedIDs),
+			requiresDistinctMissing: requiresDistinctMissing,
+			usesMissingCollapsed:    usesMissingCollapsed,
+			build: func(builder *weave.Builder[C, E]) {
+				test.build(builder, harness)
+			},
+		})
+	}
+	return scenarios
 }
 
 // Run executes the shared Compiler semantic suite. Each case builds through
@@ -88,20 +177,18 @@ func Run[C, E any](t *testing.T, harness Harness[C, E]) {
 		t.Fatal("compilertest: nil Resolver")
 	}
 
-	for _, test := range semanticCases(harness) {
-		t.Run(test.name, func(t *testing.T) {
-			if test.requiresMissing && !harness.DistinguishesMissing {
+	for _, scenario := range Scenarios(harness) {
+		t.Run(scenario.Name(), func(t *testing.T) {
+			if scenario.RequiresDistinctMissing() && !harness.DistinguishesMissing {
 				t.Skip("backend profile does not distinguish missing from explicit null")
 			}
 
-			builder := harness.Factory.New()
-			test.build(builder, harness)
-			condition, err := builder.Build()
+			condition, err := scenario.Build(harness.Factory)
 			if err != nil {
 				t.Fatalf("Build() error = %v", err)
 			}
 			if harness.InspectCondition != nil {
-				if err := harness.InspectCondition(test.name, condition); err != nil {
+				if err := harness.InspectCondition(scenario.Name(), condition); err != nil {
 					t.Fatalf("InspectCondition() error = %v", err)
 				}
 			}
@@ -110,7 +197,7 @@ func Run[C, E any](t *testing.T, harness Harness[C, E]) {
 				t.Fatalf("Execute() error = %v", err)
 			}
 			got := canonicalIDs(ids)
-			want := canonicalIDs(test.wantIDs)
+			want := canonicalIDs(scenario.ExpectedIDs())
 			if !slices.Equal(got, want) {
 				t.Fatalf("matching IDs = %v, want %v", got, want)
 			}
@@ -212,9 +299,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 			},
 		},
 		{
-			name:            "explicit null only",
-			wantIDs:         []string{"r03"},
-			requiresMissing: true,
+			name:                     "explicit null only",
+			wantIDs:                  []string{"r03"},
+			missingCollapsedIDs:      []string{"r03", "r04"},
+			supportsMissingCollapsed: true,
+			requiresMissing:          true,
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.IsNull(fields.NullableNumber)
 			},
@@ -295,9 +384,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 			},
 		},
 		{
-			name:            "nullable membership",
-			wantIDs:         []string{"r02", "r03", "r06"},
-			requiresMissing: true,
+			name:                     "nullable membership",
+			wantIDs:                  []string{"r02", "r03", "r06"},
+			missingCollapsedIDs:      []string{"r02", "r03", "r04", "r06"},
+			supportsMissingCollapsed: true,
+			requiresMissing:          true,
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				two := int64(2)
 				builder.In(fields.NullableNumber, []*int64{&two, nil, &two})
