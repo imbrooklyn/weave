@@ -14,7 +14,7 @@ The implicit root is always `LogicAllOf`. An empty root is true. Child order, ex
 
 A value predicate sequence runs from left to right, calls each evaluated predicate once, and stops after false. A nil predicate is an `ErrInvalidPredicate` construction error. Predicate panics are caller program errors and are not recovered.
 
-An enabled Group with a nil Scope is invalid. A disabled Group is omitted without invoking its Scope. A Scope's Group freezes before normal return or panic propagation.
+An enabled Group with a nil Scope is invalid. A disabled Group is omitted without invoking its Scope. A Scope's Group freezes before normal return or panic propagation. Every later method call consumes an origin and records `ErrInvalidState` before evaluating inclusion predicates, `enabled` values, or a nested Scope; it does not change the tree.
 
 ## Standard leaf truth table
 

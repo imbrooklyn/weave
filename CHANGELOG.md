@@ -4,6 +4,10 @@ This file records notable user-visible changes to Weave. It follows the structur
 
 ## [Unreleased]
 
+### Changed
+
+- Frozen Group method calls now record `ErrInvalidState` before evaluating inclusion predicates, `enabled` values, or nested Scopes.
+
 ## [0.1.0-alpha.1] - 2026-08-26
 
 ### Added

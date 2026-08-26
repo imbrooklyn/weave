@@ -3,9 +3,10 @@ package weave
 import "github.com/imbrooklyn/weave/when"
 
 // Group is a temporary mutable view used while a Scope callback is active. It
-// freezes when the callback returns or a panic unwinds through it. An included
-// method call after freezing cannot modify the tree and records ErrInvalidState
-// on the owning Builder. Group is not safe for concurrent use and must not be
+// freezes when the callback returns or a panic unwinds through it. Every method
+// call after freezing records ErrInvalidState on the owning Builder before
+// evaluating inclusion predicates, enabled values, or a nested Scope, and it
+// cannot modify the tree. Group is not safe for concurrent use and must not be
 // retained after the callback returns.
 type Group[E any] struct {
 	state   *constructionState
@@ -16,7 +17,8 @@ type Group[E any] struct {
 
 // Scope populates one explicit Boolean group. The Group argument is valid only
 // for the duration of the call and freezes before Scope returns or a panic
-// unwinds through it.
+// unwinds through it. A retained Group rejects every later method call before
+// evaluating that call's inclusion inputs.
 type Scope[E any] func(*Group[E])
 
 func (g *Group[E]) constructionContext() constructionContext {

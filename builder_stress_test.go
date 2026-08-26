@@ -519,7 +519,7 @@ func TestEveryLogicFreezesBeforeScopePanicEscapes(t *testing.T) {
 	}
 }
 
-func TestFrozenGroupCallsPreserveInclusionOrderAndNeverMutate(t *testing.T) {
+func TestFrozenGroupLifecyclePrecedesInclusionAndNeverMutates(t *testing.T) {
 	builder := newConstructionBuilder()
 	var leaked *Group[constructionExpression]
 	builder.AllOf(func(group *Group[constructionExpression]) {
@@ -528,37 +528,69 @@ func TestFrozenGroupCallsPreserveInclusionOrderAndNeverMutate(t *testing.T) {
 	})
 	outer := requireSingleRootChild[*groupNode](t, builder)
 
-	leaked.EQ("omitted", 2, func(int) bool { return false })
-	if builder.state.sequence != 3 || len(builder.state.errors) != 0 {
-		t.Fatalf("omitted frozen call = sequence %d, errors %#v", builder.state.sequence, builder.state.errors)
-	}
-	leaked.EQ("nil inclusion", 3, nil)
-	if len(builder.state.errors) != 1 ||
-		!errors.Is(builder.state.errors[0], ErrInvalidPredicate) ||
-		builder.state.errors[0].Origin != (Origin{Sequence: 4, Operator: OperatorEQ}) {
-		t.Fatalf("nil inclusion diagnostics = %#v", builder.state.errors)
-	}
-
+	valuePredicateCalls := 0
+	pairPredicateCalls := 0
 	nestedScopeCalls := 0
 	calls := []struct {
 		name     string
 		operator Operator
 		call     func()
 	}{
-		{name: "comparison", operator: OperatorNEQ, call: func() { leaked.NEQ("field", 1) }},
-		{name: "membership", operator: OperatorIn, call: func() { leaked.In("field", constructionNumbers{1}) }},
-		{name: "range", operator: OperatorBetween, call: func() { leaked.Between("field", 1, 2) }},
-		{name: "null", operator: OperatorIsNull, call: func() { leaked.IsNull("field") }},
-		{name: "text", operator: OperatorContains, call: func() { leaked.Contains("field", "value") }},
 		{
-			name: "group",
+			name:     "comparison predicate",
+			operator: OperatorNEQ,
 			call: func() {
-				leaked.AnyOf(func(*Group[constructionExpression]) {
-					nestedScopeCalls++
+				leaked.NEQ("field", 1, func(int) bool {
+					valuePredicateCalls++
+					return false
 				})
 			},
 		},
-		{name: "expression", call: func() { leaked.Expr(constructionExpression{name: "expression"}) }},
+		{
+			name:     "membership predicate",
+			operator: OperatorIn,
+			call: func() {
+				leaked.In("field", constructionNumbers{1}, func(constructionNumbers) bool {
+					valuePredicateCalls++
+					return false
+				})
+			},
+		},
+		{
+			name:     "range pair predicate",
+			operator: OperatorBetween,
+			call: func() {
+				leaked.Between("field", 1, 2, func(int, int) bool {
+					pairPredicateCalls++
+					return false
+				})
+			},
+		},
+		{name: "null enabled", operator: OperatorIsNull, call: func() { leaked.IsNull("field", false) }},
+		{
+			name:     "text predicate",
+			operator: OperatorContains,
+			call: func() {
+				leaked.Contains("field", "value", func(string) bool {
+					valuePredicateCalls++
+					return false
+				})
+			},
+		},
+		{
+			name: "group enabled",
+			call: func() {
+				leaked.AnyOf(func(*Group[constructionExpression]) {
+					nestedScopeCalls++
+				}, false)
+			},
+		},
+		{
+			name: "expression enabled",
+			call: func() {
+				leaked.Expr(constructionExpression{name: "expression"}, false)
+			},
+		},
 	}
 
 	for index, call := range calls {
@@ -568,12 +600,12 @@ func TestFrozenGroupCallsPreserveInclusionOrderAndNeverMutate(t *testing.T) {
 			if len(outer.children) != beforeChildren {
 				t.Fatalf("frozen group child count changed from %d to %d", beforeChildren, len(outer.children))
 			}
-			wantSequence := uint64(index + 5)
+			wantSequence := uint64(index + 3)
 			if builder.state.sequence != wantSequence {
 				t.Fatalf("sequence = %d, want %d", builder.state.sequence, wantSequence)
 			}
-			if len(builder.state.errors) != index+2 {
-				t.Fatalf("error count = %d, want %d", len(builder.state.errors), index+2)
+			if len(builder.state.errors) != index+1 {
+				t.Fatalf("error count = %d, want %d", len(builder.state.errors), index+1)
 			}
 			diagnostic := builder.state.errors[len(builder.state.errors)-1]
 			wantOrigin := Origin{Sequence: wantSequence, Operator: call.operator}
@@ -582,8 +614,13 @@ func TestFrozenGroupCallsPreserveInclusionOrderAndNeverMutate(t *testing.T) {
 			}
 		})
 	}
-	if nestedScopeCalls != 0 {
-		t.Fatalf("nested frozen scope calls = %d, want 0", nestedScopeCalls)
+	if valuePredicateCalls != 0 || pairPredicateCalls != 0 || nestedScopeCalls != 0 {
+		t.Fatalf(
+			"frozen callback calls = value %d, pair %d, scope %d; want all zero",
+			valuePredicateCalls,
+			pairPredicateCalls,
+			nestedScopeCalls,
+		)
 	}
 }
 

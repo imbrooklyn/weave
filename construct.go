@@ -65,7 +65,15 @@ type constructionContext struct {
 }
 
 func (c constructionContext) begin(operator Operator) (Origin, bool) {
-	return c.state.nextOrigin(operator)
+	origin, ok := c.state.nextOrigin(operator)
+	if !ok {
+		return origin, false
+	}
+	if !c.active {
+		c.recordError(CodeInvalidState, origin, operator, nil, nil)
+		return origin, false
+	}
+	return origin, true
 }
 
 func (c constructionContext) validateTarget(origin Origin, operator Operator) bool {

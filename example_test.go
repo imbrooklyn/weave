@@ -45,7 +45,7 @@ func Example() {
 
 	predicate, err := factory.New().
 		EQ("tenant_id", 42).
-		In("status", statuses, when.NotEmpty[[]int]).
+		In("status", statuses, when.NotEmpty).
 		AnyOf(func(group *weave.Group[exampleExpression]) {
 			group.Contains("name", keyword).
 				Contains("email", keyword)
@@ -67,6 +67,27 @@ func Example() {
 	// Output:
 	// all_of with 3 children
 	// 3 operators
+}
+
+func ExampleGroup_lifecycle() {
+	factory := weave.NewFactory[exampleCondition, exampleExpression](exampleCompiler{})
+	builder := factory.New()
+	var retained *weave.Group[exampleExpression]
+
+	builder.AllOf(func(group *weave.Group[exampleExpression]) {
+		retained = group
+	})
+	predicateCalls := 0
+	retained.EQ("status", 1, func(int) bool {
+		predicateCalls++
+		return false
+	})
+
+	_, err := builder.Predicate()
+	fmt.Println(errors.Is(err, weave.ErrInvalidState), predicateCalls)
+
+	// Output:
+	// true 0
 }
 
 func ExampleBuilder_AnyOf() {

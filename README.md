@@ -95,7 +95,7 @@ func UserPredicate[C, E any](
 ) (weave.Predicate[C, E], error) {
     return factory.New().
         EQ(fields.TenantID, input.TenantID).
-        In(fields.Status, input.Statuses, when.NotEmpty[[]int]).
+        In(fields.Status, input.Statuses, when.NotEmpty).
         AnyOf(func(group *weave.Group[E]) {
             group.Contains(fields.Name, input.Keyword).
                 Contains(fields.Email, input.Keyword)
@@ -159,7 +159,7 @@ Enabled empty groups use Boolean identities:
 
 An enabled Group whose children are all omitted is still an enabled empty Group. This differs from disabling the Group itself. In particular, an optional `AnyOf` should normally be disabled at the Group level when its shared input is absent.
 
-A Group is valid only while its Scope callback runs. It freezes before the callback returns or a panic unwinds through it. A later method call records `ErrInvalidState` and cannot change the tree.
+A Group is valid only while its Scope callback runs. It freezes before the callback returns or a panic unwinds through it. Every later method call records `ErrInvalidState` and cannot change the tree. This lifecycle check happens before inclusion predicates, `enabled` values, or a nested Scope are evaluated.
 
 ## Two-valued match-set semantics
 
