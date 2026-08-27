@@ -41,7 +41,7 @@ func scenarioHarness() Harness[string, string] {
 
 func TestScenariosExposeCanonicalReadOnlyCases(t *testing.T) {
 	scenarios := Scenarios(scenarioHarness())
-	if got, want := len(scenarios), 28; got != want {
+	if got, want := len(scenarios), 31; got != want {
 		t.Fatalf("len(Scenarios()) = %d, want %d", got, want)
 	}
 
@@ -83,7 +83,7 @@ func TestScenariosOmitUnavailableNativeCases(t *testing.T) {
 	harness := scenarioHarness()
 	harness.NativeCondition = nil
 	harness.NativeExpression = nil
-	if got, want := len(Scenarios(harness)), 26; got != want {
+	if got, want := len(Scenarios(harness)), 29; got != want {
 		t.Fatalf("len(Scenarios()) = %d, want %d", got, want)
 	}
 }

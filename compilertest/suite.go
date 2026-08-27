@@ -215,10 +215,31 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 			build:   func(*weave.Builder[C, E], Harness[C, E]) {},
 		},
 		{
+			name:    "constant true empty all",
+			wantIDs: allRecordIDs(),
+			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
+				builder.AllOf(func(*weave.Group[E]) {})
+			},
+		},
+		{
 			name:    "constant false empty any",
 			wantIDs: nil,
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.AnyOf(func(*weave.Group[E]) {})
+			},
+		},
+		{
+			name:    "constant true empty none",
+			wantIDs: allRecordIDs(),
+			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
+				builder.NoneOf(func(*weave.Group[E]) {})
+			},
+		},
+		{
+			name:    "constant false empty not all",
+			wantIDs: nil,
+			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
+				builder.NotAllOf(func(*weave.Group[E]) {})
 			},
 		},
 		{
