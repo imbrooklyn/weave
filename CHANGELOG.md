@@ -8,6 +8,7 @@ This file records notable user-visible changes to Weave. It follows the structur
 
 - Frozen Group method calls now record `ErrInvalidState` before evaluating inclusion predicates, `enabled` values, or nested Scopes.
 - The canonical `compilertest` scenarios now cover the empty identities of all four Boolean Logic forms explicitly.
+- `compilertest` now selects canonical scenarios from each Compiler's global capabilities and field applicability, supports subset and constant-only Compilers, and verifies structured preflight rejection for every undeclared operator and native feature.
 
 ## [0.1.0-alpha.1] - 2026-08-26
 

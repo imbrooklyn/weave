@@ -72,7 +72,14 @@ type semanticCase[C, E any] struct {
 	missingCollapsedIDs      []string
 	supportsMissingCollapsed bool
 	requiresMissing          bool
+	fieldOperators           []fieldOperator
+	features                 []weave.Feature
 	build                    func(*weave.Builder[C, E], Harness[C, E])
+}
+
+type fieldOperator struct {
+	field    any
+	operator weave.Operator
 }
 
 // Scenario is one read-only canonical semantic case. Scenario values are
@@ -129,17 +136,23 @@ func (scenario Scenario[C, E]) Build(factory *weave.Factory[C, E]) (C, error) {
 }
 
 // Scenarios returns the canonical backend-neutral semantic match-set cases for
-// harness. Native and Expr cases are included only when their corresponding
-// Harness constructors are present. For a Harness that materializes missing as
-// explicit null, null-sensitive scenarios expose their canonical collapsed
-// match sets and only a scenario that must identify missing remains
-// unavailable. Every call returns independent Scenario metadata; callers
-// cannot replace or mutate the package-owned definitions.
+// harness. When Harness.Factory is non-nil, cases outside its global
+// capabilities are omitted. When Harness.Resolver is also non-nil, a case is
+// omitted when any standard operator is not applicable to its bound field.
+// Native and Expr cases additionally require their corresponding Harness
+// constructors. For a Harness that materializes missing as explicit null,
+// null-sensitive scenarios expose their canonical collapsed match sets and
+// only a scenario that must identify missing remains unavailable. Every call
+// returns independent Scenario metadata; callers cannot replace or mutate the
+// package-owned definitions.
 func Scenarios[C, E any](harness Harness[C, E]) []Scenario[C, E] {
 	tests := semanticCases(harness)
 	scenarios := make([]Scenario[C, E], 0, len(tests))
 	for _, test := range tests {
 		test := test
+		if !semanticCaseApplicable(test, harness) {
+			continue
+		}
 		expectedIDs := test.wantIDs
 		requiresDistinctMissing := test.requiresMissing
 		usesMissingCollapsed := false
@@ -161,10 +174,59 @@ func Scenarios[C, E any](harness Harness[C, E]) []Scenario[C, E] {
 	return scenarios
 }
 
+func semanticCaseApplicable[C, E any](
+	test semanticCase[C, E],
+	harness Harness[C, E],
+) bool {
+	if harness.Factory == nil {
+		return true
+	}
+	if !harness.Factory.Capabilities().Supports(semanticCaseRequirements(test)) {
+		return false
+	}
+	if isNilLike(harness.Resolver) {
+		return true
+	}
+	for _, use := range test.fieldOperators {
+		capabilities, err := harness.Resolver.CapabilitiesFor(use.field)
+		if err != nil {
+			// Keep the case so executable callers observe the invalid field instead
+			// of silently losing coverage. Run reports the resolver error in its
+			// capability contract.
+			continue
+		}
+		if !capabilities.Operators.Has(use.operator) {
+			return false
+		}
+	}
+	return true
+}
+
+func semanticCaseRequirements[C, E any](test semanticCase[C, E]) weave.Requirements {
+	operators := make([]weave.Operator, 0, len(test.fieldOperators))
+	for _, use := range test.fieldOperators {
+		operators = append(operators, use.operator)
+	}
+	return weave.Requirements{
+		Operators: weave.NewOperatorSet(operators...),
+		Features:  weave.NewFeatureSet(test.features...),
+	}
+}
+
+func uses(field any, operators ...weave.Operator) []fieldOperator {
+	result := make([]fieldOperator, len(operators))
+	for index, operator := range operators {
+		result[index] = fieldOperator{field: field, operator: operator}
+	}
+	return result
+}
+
 // Run executes the shared Compiler semantic suite. Each case builds through
 // Harness.Factory, invokes Harness.Execute, and compares canonical record-ID
-// sets rather than backend output text. Native and Expr cases run only when
-// their corresponding optional constructor is present.
+// sets rather than backend output text. Cases are selected from the Factory's
+// global capabilities and the Resolver's field applicability. Run also checks
+// that every unsupported standard operator and native feature is rejected by
+// Factory preflight with a zero condition and a structured error.
 func Run[C, E any](t *testing.T, harness Harness[C, E]) {
 	t.Helper()
 	if harness.Factory == nil {
@@ -245,6 +307,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "scalar equality",
 			wantIDs: []string{"r03"},
+			fieldOperators: uses(
+				fields.Number,
+				weave.OperatorEQ,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.EQ(fields.Number, int64(3))
 			},
@@ -252,6 +318,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "scalar literal text",
 			wantIDs: []string{"r03", "r04"},
+			fieldOperators: uses(
+				fields.Text,
+				weave.OperatorContains,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.Contains(fields.Text, "prefix")
 			},
@@ -259,6 +329,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "equality",
 			wantIDs: []string{"r02", "r06"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorEQ,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.EQ(fields.NullableNumber, int64(2))
 			},
@@ -266,6 +340,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "inequality excludes null and missing",
 			wantIDs: []string{"r01", "r05"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorNEQ,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.NEQ(fields.NullableNumber, int64(2))
 			},
@@ -273,6 +351,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "less than",
 			wantIDs: []string{"r01"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorLT,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.LT(fields.NullableNumber, int64(2))
 			},
@@ -280,6 +362,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "less than or equal",
 			wantIDs: []string{"r01", "r02", "r06"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorLTE,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.LTE(fields.NullableNumber, int64(2))
 			},
@@ -287,6 +373,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "greater than",
 			wantIDs: []string{"r05"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorGT,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.GT(fields.NullableNumber, int64(2))
 			},
@@ -294,6 +384,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "greater than or equal",
 			wantIDs: []string{"r02", "r05", "r06"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorGTE,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.GTE(fields.NullableNumber, int64(2))
 			},
@@ -301,6 +395,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "membership preserves set semantics",
 			wantIDs: []string{"r02", "r05", "r06"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorIn,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.In(fields.NullableNumber, []int64{2, 2, 5})
 			},
@@ -308,6 +406,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "negative membership excludes null and missing",
 			wantIDs: []string{"r01"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorNotIn,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.NotIn(fields.NullableNumber, []int64{2, 2, 5})
 			},
@@ -315,6 +417,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "inclusive range",
 			wantIDs: []string{"r02", "r06"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorBetween,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.Between(fields.NullableNumber, int64(2), int64(4))
 			},
@@ -325,6 +431,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 			missingCollapsedIDs:      []string{"r03", "r04"},
 			supportsMissingCollapsed: true,
 			requiresMissing:          true,
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorIsNull,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.IsNull(fields.NullableNumber)
 			},
@@ -332,6 +442,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "not null means value",
 			wantIDs: []string{"r01", "r02", "r05", "r06"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorNotNull,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.NotNull(fields.NullableNumber)
 			},
@@ -339,6 +453,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "literal contains special characters",
 			wantIDs: []string{"r02"},
+			fieldOperators: uses(
+				fields.NullableText,
+				weave.OperatorContains,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.Contains(fields.NullableText, LiteralSpecialText)
 			},
@@ -346,6 +464,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "literal prefix",
 			wantIDs: []string{"r06"},
+			fieldOperators: uses(
+				fields.NullableText,
+				weave.OperatorHasPrefix,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.HasPrefix(fields.NullableText, ".*")
 			},
@@ -353,6 +475,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "literal suffix",
 			wantIDs: []string{"r02"},
+			fieldOperators: uses(
+				fields.NullableText,
+				weave.OperatorHasSuffix,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.HasSuffix(fields.NullableText, "\u4e16\u754c\nend")
 			},
@@ -360,6 +486,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "root conjunction",
 			wantIDs: []string{"r02", "r03", "r04"},
+			fieldOperators: uses(
+				fields.Number,
+				weave.OperatorGTE,
+				weave.OperatorLTE,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.GTE(fields.Number, int64(2)).
 					LTE(fields.Number, int64(4))
@@ -368,6 +499,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "all of",
 			wantIDs: []string{"r02", "r03", "r04"},
+			fieldOperators: uses(
+				fields.Number,
+				weave.OperatorGTE,
+				weave.OperatorLTE,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.AllOf(func(group *weave.Group[E]) {
 					group.GTE(fields.Number, int64(2)).
@@ -378,6 +514,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "any of",
 			wantIDs: []string{"r01", "r06"},
+			fieldOperators: uses(
+				fields.Number,
+				weave.OperatorEQ,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.AnyOf(func(group *weave.Group[E]) {
 					group.EQ(fields.Number, int64(1)).
@@ -388,6 +528,10 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "none of is match-set complement",
 			wantIDs: []string{"r01", "r03", "r04", "r05"},
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorEQ,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.NoneOf(func(group *weave.Group[E]) {
 					group.EQ(fields.NullableNumber, int64(2))
@@ -397,6 +541,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "not all of is match-set complement",
 			wantIDs: []string{"r01", "r06"},
+			fieldOperators: uses(
+				fields.Number,
+				weave.OperatorGTE,
+				weave.OperatorLTE,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.NotAllOf(func(group *weave.Group[E]) {
 					group.GTE(fields.Number, int64(2)).
@@ -410,6 +559,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 			missingCollapsedIDs:      []string{"r02", "r03", "r04", "r06"},
 			supportsMissingCollapsed: true,
 			requiresMissing:          true,
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorIn,
+				weave.OperatorIsNull,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				two := int64(2)
 				builder.In(fields.NullableNumber, []*int64{&two, nil, &two})
@@ -419,6 +573,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 			name:            "missing state",
 			wantIDs:         []string{"r04"},
 			requiresMissing: true,
+			fieldOperators: uses(
+				fields.NullableNumber,
+				weave.OperatorIsNull,
+				weave.OperatorNotNull,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.NoneOf(func(group *weave.Group[E]) {
 					group.IsNull(fields.NullableNumber).
@@ -429,6 +588,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		{
 			name:    "three-level logic nesting",
 			wantIDs: []string{"r03", "r04", "r05", "r06"},
+			fieldOperators: uses(
+				fields.Number,
+				weave.OperatorEQ,
+				weave.OperatorGTE,
+			),
 			build: func(builder *weave.Builder[C, E], _ Harness[C, E]) {
 				builder.AllOf(func(levelOne *weave.Group[E]) {
 					levelOne.AnyOf(func(levelTwo *weave.Group[E]) {
@@ -446,6 +610,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		tests = append(tests, semanticCase[C, E]{
 			name:    "native condition in root conjunction",
 			wantIDs: []string{"r04"},
+			fieldOperators: uses(
+				fields.Number,
+				weave.OperatorGTE,
+			),
+			features: []weave.Feature{weave.FeatureNativeCondition},
 			build: func(builder *weave.Builder[C, E], harness Harness[C, E]) {
 				builder.Native(harness.NativeCondition([]string{"r02", "r04"})).
 					GTE(fields.Number, int64(3))
@@ -456,6 +625,11 @@ func semanticCases[C, E any](harness Harness[C, E]) []semanticCase[C, E] {
 		tests = append(tests, semanticCase[C, E]{
 			name:    "native expression inside group",
 			wantIDs: []string{"r01", "r03", "r06"},
+			fieldOperators: uses(
+				fields.Number,
+				weave.OperatorEQ,
+			),
+			features: []weave.Feature{weave.FeatureNativeExpression},
 			build: func(builder *weave.Builder[C, E], harness Harness[C, E]) {
 				builder.AnyOf(func(group *weave.Group[E]) {
 					group.Expr(harness.NativeExpression([]string{"r01", "r03"})).

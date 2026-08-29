@@ -22,14 +22,17 @@ github.com/imbrooklyn/weave/compilertest
 
 The `compilertest` package provides a shared scalar fixture and a
 Factory/field/capability/execution callback harness for Adapter semantic tests.
-It checks every standard operator, all four Boolean logics, null and missing
-states, Native and Expr, redacted validation errors, and repeated and
-concurrent compilation by comparing stable record-ID match sets. It never
-interprets backend output. Harnesses may add their own condition inspection
-callback for representation-specific parameterization or safety assertions.
-`Scenarios` exposes the same read-only canonical semantic cases to ordinary
-programs, so runnable examples can share the suite's Predicate construction and
-expected IDs without depending on `testing.T` or copying contract cases.
+It checks the operators and native features declared by each Compiler, all four
+Boolean logics, null and missing states, redacted validation errors, and
+repeated and concurrent compilation by comparing stable record-ID match sets.
+It also verifies that undeclared operators and features fail during Factory
+preflight with a structured error and a zero condition. It never interprets
+backend output. Harnesses may add their own condition inspection callback for
+representation-specific parameterization or safety assertions. `Scenarios`
+exposes the read-only canonical cases applicable to the Factory's global
+capabilities and each field's reported applicability, so runnable examples can
+share the suite's Predicate construction and expected IDs without depending on
+`testing.T` or copying contract cases.
 
 ## Core API
 
